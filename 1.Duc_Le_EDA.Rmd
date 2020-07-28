@@ -1,0 +1,534 @@
+---
+title: "EDA"
+output:
+  word_document: default
+  html_document: default
+---
+
+
+### 1. Data Preparation
+```{r message=FALSE, warning=FALSE}
+#install.packages("tidyverse")
+#install.packages("knitr")
+library(tidyverse)
+library(knitr)
+library(readxl)
+```
+
+##### 1.1. list the excel file's sheets
+```{r}
+excel_sheets('Credit_Risk6_final.xlsx')
+```
+
+##### 1.2. load the dataset
+dataframe `df1` from 'Training_Data' sheet
+```{r}
+df1 <- read_excel('Credit_Risk6_final.xlsx', sheet = 'Training_Data')
+str(df1)
+```
+dataframe `df2` from 'Scoring_Data' sheet
+```{r}
+df2 <- read_excel('Credit_Risk6_final.xlsx', sheet = 'Scoring_Data')
+str(df2)
+```
+##### 1.3 change columns' names 
+dataframe `df1`
+```{r}
+names(df1)[names(df1) == 'ID'] <- 'id'
+names(df1)[names(df1) == 'Checking Acct'] <- 'checking'
+names(df1)[names(df1) == 'Credit History'] <- 'history'
+names(df1)[names(df1) == 'Loan Reason'] <- 'loan_reason'
+names(df1)[names(df1) == 'Savings Acct'] <- 'saving'
+names(df1)[names(df1) == 'Employment'] <- 'employment'
+names(df1)[names(df1) == 'Personal Status'] <- 'status'
+names(df1)[names(df1) == 'Housing'] <- 'housing'
+names(df1)[names(df1) == 'Job Type'] <- 'job'
+names(df1)[names(df1) == 'Foreign National'] <- 'foreign'
+names(df1)[names(df1) == 'Months since Checking Acct opened'] <- 'months'
+names(df1)[names(df1) == 'Residence Time (In current district)'] <- 'residence'
+names(df1)[names(df1) == 'Age'] <- 'age'
+names(df1)[names(df1) == 'Credit Standing'] <- 'credit'
+```
+dataframe `df2`
+```{r}
+names(df2)[names(df2) == 'ID'] <- 'id'
+names(df2)[names(df2) == 'Checking Acct'] <- 'checking'
+names(df2)[names(df2) == 'Credit History'] <- 'history'
+names(df2)[names(df2) == 'Loan Reason'] <- 'loan_reason'
+names(df2)[names(df2) == 'Savings Acct'] <- 'saving'
+names(df2)[names(df2) == 'Employment'] <- 'employment'
+names(df2)[names(df2) == 'Personal Status'] <- 'status'
+names(df2)[names(df2) == 'Housing'] <- 'housing'
+names(df2)[names(df2) == 'Job Type'] <- 'job'
+names(df2)[names(df2) == 'Foreign National'] <- 'foreign'
+names(df2)[names(df2) == 'Months since Checking Acct opened'] <- 'months'
+names(df2)[names(df2) == 'Residence Time'] <- 'residence'
+names(df2)[names(df2) == 'Age'] <- 'age'
+```
+##### 1.4 checking duplications and overlaps
+**a. checking column id in both `df1` & `df2`**
+<br />building a function to check whether id's vector is consecutive or not
+```{r}
+check_consecutive <- function(x){
+  if(all(diff(x) == 1)){
+    print('This is consecutive')
+  }else{
+    print('This is not consecutive')
+    print('Positions are not consecutive')
+    print(which(diff(x) != 1))
+  }
+}
+```
+```{r}
+# checking the df1's id
+check_consecutive(df1$id)
+```
+
+```{r}
+# checking the df2's id
+check_consecutive(df2$id)
+```
+**b. checking the 'credit' entry in dataframe df1**
+<br /> Since the credits are binary outcomes including 'Good' & 'Bad', the credit reflects a binomial distribution associated with percentage of 'Good' & percentage of 'Bad'
+```{r}
+# percentage of the good credit
+prop_good <- prop.table(table(df1$credit))[[2]]
+prop_good
+```
+```{r}
+table(df1$credit)
+```
+
+
+```{r}
+# percentage of the bad credit
+prop_bad <- prop.table(table(df1$credit))[[1]]
+prop_bad
+```
+The probability of binomial distribution: 
+$$f(x) = {{}^n C_x} p^xq^{n-x}$$
+$$p = 0.5910256$$
+$$q = 0.4089744$$
+Where n - the number of trials, p - the probability of 'Good', q - the probability of 'Bad'   
+<br />
+This report will look at consecutive credit values which are similar, i.e. a sequence of 'Good' or 'Bad'. There is an assumption that all observations were recorded in chronological order refering to the order of the id. To specify the test, a level of 5% is given as the threshold. Any combinations, whose probabilities below the threshold, are considered suspicious. 
+<br /> <br />
+For "Good" credit, the probability of having more than 6 consecutive entries will be less than the threshold
+$$f(6) = {{}^6 C_6} p^6q^0 = 0.04262 < threshold $$
+For "Bad" credit, the probability of having more than 4 consecutive entries will be less than the threshold
+$$f(0) = {{}^4 C_0} p^0q^4 = 0.02798 < threshold $$
+
+```{r}
+# getting the lengths of consecutive credits which are similar 
+consecutive_credit <- rle(df1$credit)
+credit_freq <- consecutive_credit[[1]]
+credit_value <- consecutive_credit[[2]]
+# identify the ids positions where consecutive similar credits start
+id_start <- c(1, cumsum(consecutive_credit[[1]]) + 1)
+id_start <- id_start[1:length(id_start)-1]
+# identify the ids positions where consecutive similar credits end
+id_end <- id_start + consecutive_credit[[1]] - 1 
+# calculate chance of events associated with consecutive similar credits
+chance <- c()
+for(i in 1:length(id_start)){
+  if(credit_value[i] == "Good"){
+    chance <- c(chance, prop_good^credit_freq[i]*100)
+  }else{
+    chance <- c(chance, prop_bad^credit_freq[i]*100)
+  }
+}
+# creating a dataframe for suspicious entries
+# i.e. number of consecutive credit entries are greater than 6
+frame_a <- data.frame(id_start, id_end, credit_freq, credit_value, chance)
+colnames(frame_a) <- c('id_start', 'id_end', 'frequency', 'value','chance_in_percentage')
+good_entry_limit <- frame_a %>%
+  filter(value == 'Good') %>%
+  filter(frequency >= 6)
+bad_entry_limit <- frame_a %>%
+  filter(value == 'Bad') %>%
+  filter(frequency >= 4)
+suspicious_entry <- bind_rows(good_entry_limit, bad_entry_limit)
+suspicious_entry <- suspicious_entry %>% arrange(id_start)
+suspicious_entry
+```
+
+**CONCLUSION 1:** considering the theoretical probability of binomial distribution and the assumption of all the entries are recorded in the chronological order refering to the order of the id, in total, there are **35** cases that suspicious entries, which include their ids from start to end in their sequences, are revealed. Noticeably, 25 consecutive "Good" credit entries and up to 18 "Bad" ones are identified. Statistically speaking, those cases are extremly rare in an unbiased theoretical setting given by the overall binominal probabilities of the "Good" and "Bad. To a certain extent, this finding might question the realibility of the grading system which comprised both automatic process and manual endevours by human.
+<br /> <br />
+**d. checking duplications in all observations regardless of ids **
+<br /> The upcoming predictive models will be built upon observations except for ids. Therefore, it is necessary to check whether there are any duplications in the dataset `df1` & `df2`.
+```{r}
+# creating a vector containing rows are duplicated with other rows in the dataset df1
+a <- duplicated(df1[,2:14])
+row_dups <- df1$id[a]
+# print all the ids having similar rows in the dataset df1
+for(j in row_dups){
+  for(i in 1:nrow(df1)){
+    if(j != i){
+      if(identical(df1[j,2:14], df1[i, 2:14])){
+        cat('\n In the dataset df1, the id number',df1[j,1]$id, 'is having similar row to the id number',df1[i,1]$id)
+      }
+    }
+  }
+}
+```
+```{r}
+# the number of duplications in the dataset df1
+cat('Number of duplications in the dataset df1:',length(row_dups))
+```
+```{r}
+# for example, id 470 has similar row to id 7
+df1[df1$id == 470,]
+```
+
+```{r}
+df1[df1$id == 7,]
+```
+checking duplications in the dataset df2
+```{r}
+b <- duplicated(df2[,2:13])
+b
+```
+there is no duplication in the dataset df2
+
+<br/>
+checking any overlap between df1 & df2 regardless of the ids columns, i.e. checking whether any new observations are from the past observations
+```{r}
+for(i in 1:nrow(df2)){
+  for(j in 1:nrow(df1)){
+    if(identical(df2[i,2:13], df1[j,2:13])){
+      cat('\nThe id', df2[i,1]$id,'in dataset df2 is having similar row to the id', df1[j,1]$id, 'in dataset df1')
+    }
+  }
+}
+```
+
+```{r}
+# for example, id 782 in dataset df2 is similar to the id 607 in dataset df1
+df2[df2$id == 782,]
+df1[df1$id == 607,]
+```
+
+```{r}
+# removing duplications in dataset df1
+df1 <- df1[-row_dups,]
+```
+<br/>
+**CONCLUSION 2:** In the dataframe df1, there are 142 duplications. It accounts for 18% of the dataset with 780 observations. It is necessary to remove those duplications which might effect the reliability of predictive models. 
+<br/>
+<br/>
+In the dataframe df2, there is no duplication yet the overlap of observations from the dataframe df1. To be more specific, the df2's observations whose ids are 782 & 783 are having similar inputs as df1's observations whose ids are 607 & 603 respectively. It could be a good reference for checking the predictive models' accuracy. The future predicted credit values of ids 782 & 783 in dataframe df2 should be "Good" given by the df1's observation with the ids 607 & 603. 
+<br/>
+<br/>
+
+##### 1.5 checking categorical variables
+
+ **a. factorise columns whose classes are characters**
+```{r}
+# df1
+for(i in 2:ncol(df1)){
+  if(is.character(df1[[i]])){
+    df1[[i]] <- as.factor(df1[[i]])
+  }
+}
+# df2
+for(i in 2:ncol(df2)){
+  if(is.character(df2[[i]])){
+    df2[[i]] <- as.factor(df2[[i]])
+  }
+}
+```
+**b. changing level's name from '0Balance' to 'No Balance' in the checking column**
+```{r}
+# df1
+levels(df1$checking)[levels(df1$checking) == '0Balance'] <- 'No Balance'
+# df2
+levels(df2$checking)[levels(df2$checking) == '0Balance'] <- 'No Balance'
+```
+**c. checking missing values for each categorical variable**
+```{r}
+for(i in 2:ncol(df1)){
+  if(is.factor(df1[[i]])){
+    cat('\n','This is the column', names(df1[i]), '\n')
+    cat('No. of missing values', sum(is.na(df1[[i]])), '\n')
+  }
+}
+```
+##### 1.6. checking numeric columns
+```{r}
+# checking missing values
+for(i in 2:ncol(df1)){
+  if(is.numeric(df1[[i]])){
+    cat('\n','This is the column', names(df1[i]), '\n')
+    cat('No. of missing values', sum(is.na(df1[[i]])), '\n')
+  }
+}
+```
+##### 1.7 dealing with missing values
+```{r message=FALSE, warning=FALSE}
+# instruction: https://cran.r-project.org/web/packages/mice/mice.pdf
+# install.packages('mice')
+library(mice)
+```
+
+```{r}
+#visualising the missing-data matrix
+md.pattern(df1)
+```
+
+```{r}
+# imputing the missing data
+impute <- mice(df1[,2:14], m=5, seed = 696)   # m: Number of multiple imputations
+print(impute)   # for catogerical variables having missing values, i.e. employment, status & housing, multinomial logistic regression is applied
+```
+
+```{r}
+# complete data
+df1 <- bind_cols(as.data.frame(df1$id), complete(impute, 1))
+names(df1)[names(df1) == 'df1$id'] <- 'id'
+str(df1)
+```
+##### 1.8 export csv files from dataframes df1 & df2 
+```{r}
+# write.csv(df1, 'df1.csv', row.names = FALSE)
+# write.csv(df2, 'df2.csv', row.names = FALSE)
+```
+
+
+### 2. EDA
+```{r}
+# setting positions of numeric variables and categorical variables
+nume_pos <- c(11,12,13)
+cate_pos <- c(2,3,4,5,6,7,8,9,10,14)
+```
+##### 2.1 investigating correlations among variables 
+
+**a.correlations among numeric variables**
+```{r}
+# create a dataframe having numeric variables
+df1numeric <- df1[,nume_pos]
+# building correlation matrix among variables
+cor.mat <- cor(df1numeric, use = 'complete.obs')
+# building p-value matrix among variables
+cor.mtest <- function(mat, ...) {
+  mat <- as.matrix(mat)
+  n <- ncol(mat)
+  p.mat<- matrix(NA, n, n)
+  diag(p.mat) <- 0
+  for (i in 1:(n - 1)) {
+    for (j in (i + 1):n) {
+      tmp <- cor.test(mat[, i], mat[, j], ...)
+      p.mat[i, j] <- p.mat[j, i] <- tmp$p.value
+    }
+  }
+  colnames(p.mat) <- rownames(p.mat) <- colnames(mat)
+  p.mat
+}
+p.mat <- cor.mtest(df1numeric)
+```
+
+```{r message=FALSE, warning=FALSE}
+# install.packages("corrplot")
+# instruction: http://www.sthda.com/english/wiki/visualize-correlation-matrix-using-correlogram
+library(corrplot)
+```
+
+```{r}
+# plotting correlation matrix
+col1 <- colorRampPalette(c("#083c5d",'white', "#d98310"))
+corrplot(cor.mat, 
+         method = 'ellipse',
+         # choosing lower half of the corr. plot
+         # type = 'lower',
+         # add the correlation
+         addCoef.col = 'black', number.cex = 0.7,
+         # changing the axis's color
+         tl.col="black", 
+         tl.srt=0,
+         # dropping the correlation between a variabe with itself
+         diag=F,
+         # color grey indicates the cells with insignificant level of p-value being greater than 0.01
+         p.mat = p.mat, sig.level = 0.01, pch.col = 'grey91', pch.cex = 14, pch = 19,
+         col = col1(100))
+```
+<br/>
+**CONCLUSION 3:** Using Pearson's cofficent to identify correlation between numeric variables, the greater the value is shown in graph above, the stronger the correlations between numeric variables are. There is a positively weak correlation between variable residence and variable age. The correlation between residence and months is fairly weak. There is not enough evidence to identify any relationship between age and months. 
+<br/>
+<br/>
+NB. The grey circles in the graph above indicates there is not enough evidence where p-value is bigger than significance level (1%) to identify any correlation between variables 
+<br/>
+<br/>
+**b. correlations among categorical variables chi squared test**
+```{r message=FALSE, warning=FALSE}
+# install.packages('greybox')
+# instruction: https://rdrr.io/cran/greybox/man/cramer.html
+library(greybox)
+```
+
+```{r}
+# create a dataframe having categorical variables
+df1cate <- df1[,cate_pos]
+```
+
+```{r}
+# create chi-square matrix & corresponding p-value matrix
+chi_elements <- c()
+pchi_elements <- c()
+for(i in 1:length(df1cate)){
+  for(j in 1:length(df1cate)){
+    chi <- cramer(df1cate[[i]], df1cate[[j]], use = 'complete.obs')
+    chi_elements <- c(chi_elements, chi$value)
+    pchi_elements <- c(pchi_elements, chi$p.value)
+  }
+}
+chi.mat <- matrix(chi_elements, 
+                  nrow = length(df1cate), 
+                  dimnames = list(names(df1cate), names(df1cate)))
+pchi.mat <- matrix(pchi_elements, 
+                   nrow = length(df1cate), 
+                   dimnames = list(names(df1cate), names(df1cate)))
+```
+
+```{r}
+# plotting chi-square matrix
+col1 <- colorRampPalette(c("#083c5d",'white', "#d98310"))
+corrplot(chi.mat, 
+         method = 'ellipse',
+         # choosing lower half of the corr. plot
+         type = 'lower',
+         # add the correlation
+         addCoef.col = 'black', number.cex = 0.7,
+         # changing the axis's color
+         tl.col="black", 
+         tl.srt=45,
+         # dropping the correlation between a variabe with itself
+         diag=F,
+         # grey coloring the cells with insignificant level of p-value being greater than 0.01
+         p.mat = pchi.mat, sig.level = 0.01, pch.col = 'grey91', pch.cex = 4.8, pch = 19,
+         col = col1(100))
+```
+
+<br/>
+**CONCLUSION 4:** Using chi-square test to identify any association between categorical variables, the bigger values are shown in graph above, the stronger associations between categorical variables are. With regards to the response variable credit, there is a moderately strong association between the variable with history variable. Additionally, the variable is having some weak associations with employment and checking. This crucial finding is a good reference for understanding predictive models whose important variables might be likely to be the history, employment and probaly checking variables. 
+<br/>
+<br/>
+NB. The grey circles in the graph above indicates there is not enough evidence where p-value is bigger than significance level (1%) to identify any association between variables 
+<br/>
+<br/>
+
+
+**c. intraclass correlations between categorical variables vs numerical variables (ANOVA)**
+
+```{r message=FALSE, warning=FALSE}
+# instruction: https://cran.r-project.org/web/packages/ICC/ICC.pdf
+# install.packages('ICC')
+library(ICC)
+```
+
+```{r}
+# create intraclass coefficient matrix and corresponding p-value matrix
+intra_elements <- c()
+p.intra_elements <- c()
+for(i in nume_pos){
+  for(j in cate_pos){
+    # create a vector of intraclass coefficients
+    ano <- ICCest(df1[[j]], df1[[i]], alpha = 0.01)
+    intra_elements <- c(intra_elements, ano$ICC)
+    # create a vector of p-values
+    anova_test <- aov(df1[[i]] ~ df1[[j]])
+    p.intra <- summary(anova_test)[[1]][["Pr(>F)"]][1]
+    p.intra_elements <- c(p.intra_elements, p.intra)
+  }
+}
+intra.mat <- matrix(intra_elements,
+                    nrow = length(nume_pos),
+                    byrow = TRUE,
+                    dimnames = list(names(df1numeric), names(df1cate)))
+p.intra.mat <- matrix(p.intra_elements,
+                      nrow = length(nume_pos), 
+                      byrow = TRUE,
+                      dimnames = list(names(df1numeric), names(df1cate)))
+```
+
+```{r message=FALSE, warning=FALSE}
+library(reshape2)
+```
+
+```{r}
+melted_cormat1 <- melt(intra.mat)
+ggplot(data = melted_cormat1, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+    name="Intraclass Coefficient") +
+  geom_text(aes(Var1, Var2, label = value), color = "black", size = 3) +
+  theme(axis.title.x = element_blank(), axis.title.y = element_blank())
+```
+
+```{r}
+melted_cormat2 <- melt(p.intra.mat)
+ggplot(data = melted_cormat2, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+    name="p-value") +
+  geom_text(aes(Var1, Var2, label = value), color = "black", size = 3) +
+  theme(axis.title.x = element_blank(), axis.title.y = element_blank())
+```
+<br/>
+**CONCLUSION 5:** Using analysis of variance (ANOVA) to identify any variation between groups in a numeric variable, i.e. the relationship between a numeric variable and a categorical variable, the bigger the intraclass coefficients are shown in graph above, the stronger relationships between categorical and numeric variables are. With regards to the response variable credit, there are very weak relationships between the variable with other numeric variables including months, residence and age.
+<br/>
+<br/>
+
+##### 2.1 Visualisations
+
+The following visualisations are based upon previous conclusions regarding correlation/association between credit variable with 1) history & 2) employment 
+<br/>
+<br/>
+**a. Univariate visualisation - Credit**
+```{r}
+df <- as.data.frame(table(df1$credit))
+bp <- barplot(df[[2]],
+              names.arg=df[[1]],
+              las = 1,
+              border = F, 
+              ylim = c(0,max(df[[2]]) + 100), 
+              main = names(df1[i]), 
+              col = 'blue',
+              cex.names = 1)
+text(bp, df[[2]] + 20, labels = df[[2]], cex=1, col = 'black') 
+```
+<br/>
+**CONCLUSION 6:** The barplot above shows the numer of each class in credit. The bad credit accounts for 41% of the total observations. Meanwhile, the good credit accounts for 59%. Besides, it might not reveal a significant class imbalance between good credit and bad one. However, carefully selecting performance metrics for future predictive models are necessary because the imperfect division of the good and the bad might have a certain effect on those metrics to a certain extent. 
+<br/>
+<br/>
+**b. Bivariate visualisation - Credit vs history & employment**
+
+```{r}
+ggplot(df1, aes(x=credit, fill=history)) +
+  geom_bar(position = 'dodge') +
+  theme(axis.text.x = element_text(angle = 0))
+```
+<br/>
+**CONCLUSION 7:** The barplot above shows a striking difference between how the bad credit and the good one are grouped into different values of history. To be more precise, the majority of critical history falls into the bad credit. Meanwhile, most of the paid history belongs to the good credit.  
+<br/>
+<br/>
+
+
+```{r}
+ggplot(df1, aes(x=credit, fill=employment)) +
+  geom_bar(position = 'dodge') +
+  theme(axis.text.x = element_text(angle = 0))
+```
+<br/>
+**CONCLUSION 8:** The barplot above indicates a significant number of short employment falling into the bad credit. The short employment is also the dominant value in the employment variable.
+<br/>
+<br/>
+**c. Multivariate visualisation - Credit vs history & months**
+
+```{r}
+ggplot(df1, aes(x=months)) +
+  geom_density() +
+  facet_grid(credit ~ history, labeller = label_both)
+```
+
+
